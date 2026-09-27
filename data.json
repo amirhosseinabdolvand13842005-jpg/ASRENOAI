@@ -1,0 +1,26 @@
+{
+  "settings": {
+    "oldPrice": "۷,۵۰۰,۰۰۰ تومان",
+    "newPrice": "۵,۳۰۰,۰۰۰ تومان",
+    "card": "6037 9982 0433 9971",
+    "email": "amirhosseinabdolvand2005@gmail.com",
+    "deadline": "۲۱ مهر",
+    "instagram": "asrenoai",
+    "telegram": "asrenoai",
+    "support": "asreno_ai",
+    "registrationOn": true,
+    "adminPass": "asreno1405"
+  },
+  "topics": [
+    "آشنایی با هوش مصنوعی و ابزارهای کاربردی",
+    "مهندسی پرامپت و گفتگو با AI",
+    "استفاده از AI در درس و یادگیری",
+    "تولید متن، تصویر و ویدئو با AI",
+    "انیمیشن‌سازی با هوش مصنوعی",
+    "خلاقیت و ایده‌پردازی با AI",
+    "AI و برنامه‌نویسی ساده",
+    "امنیت، حریم خصوصی و اخلاق دنیای دیجیتال",
+    "پروژه عملی با هوش مصنوعی"
+  ],
+  "registrations": []
+}

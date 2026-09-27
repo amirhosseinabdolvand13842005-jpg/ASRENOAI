@@ -1,7 +1,7 @@
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import crypto from 'crypto';
-import { neon } from '@neondatabase/serverless';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -11,16 +11,13 @@ const app = express();
 app.use(express.json({ limit: '12mb' }));
 app.use(cookieParser());
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) throw new Error('DATABASE_URL is missing');
-const sql = neon(DATABASE_URL);
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'asreno1405';
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 
 const DEFAULT_SETTINGS = {
   oldPrice:'۷,۵۰۰,۰۰۰ تومان', newPrice:'۵,۳۰۰,۰۰۰ تومان',
-  card:'6037 0000 0000 0000', email:'amirhosseinabdolvand2005@gmail.com',
-  deadline:'۱۷ شهریور', instagram:'asrenoai', telegram:'asrenoai',
+  card:'6037 9982 0433 9971', email:'amirhosseinabdolvand2005@gmail.com',
+  deadline:'۲۱ مهر', instagram:'asrenoai', telegram:'asrenoai',
   support:'asreno_ai', registrationOn:true
 };
 const DEFAULT_TOPICS = [
@@ -29,13 +26,42 @@ const DEFAULT_TOPICS = [
   'AI و برنامه‌نویسی ساده','امنیت، حریم خصوصی و اخلاق دنیای دیجیتال','پروژه عملی با هوش مصنوعی'
 ];
 
-async function initDb(){
-  await sql`CREATE TABLE IF NOT EXISTS app_data (key text PRIMARY KEY, value jsonb NOT NULL)`;
-  await sql`CREATE TABLE IF NOT EXISTS registrations (id bigint PRIMARY KEY, data jsonb NOT NULL)`;
-  const rows = await sql`SELECT key FROM app_data WHERE key IN ('settings','topics')`;
-  const keys = new Set(rows.map(r=>r.key));
-  if(!keys.has('settings')) await sql`INSERT INTO app_data (key,value) VALUES ('settings', ${JSON.stringify({...DEFAULT_SETTINGS, adminPass: ADMIN_PASSWORD})}::jsonb)`;
-  if(!keys.has('topics')) await sql`INSERT INTO app_data (key,value) VALUES ('topics', ${JSON.stringify(DEFAULT_TOPICS)}::jsonb)`;
+const DATA_FILE = path.join(__dirname, 'data.json');
+
+function readStore(){
+  try{
+    if(!fs.existsSync(DATA_FILE)) return null;
+    return JSON.parse(fs.readFileSync(DATA_FILE,'utf8'));
+  }catch{return null;}
+}
+function writeStore(store){
+  fs.writeFileSync(DATA_FILE, JSON.stringify(store,null,2), 'utf8');
+}
+function initStore(){
+  let store=readStore();
+  if(!store || typeof store!=='object') store={};
+  if(!store.settings) store.settings={...DEFAULT_SETTINGS, adminPass:ADMIN_PASSWORD};
+  if(!store.topics) store.topics=[...DEFAULT_TOPICS];
+  if(!Array.isArray(store.registrations)) store.registrations=[];
+  writeStore(store);
+}
+function getData(key){
+  const store=readStore() || {};
+  return store[key];
+}
+function setData(key,value){
+  const store=readStore() || {};
+  store[key]=value;
+  writeStore(store);
+}
+function getRegistrations(){
+  const store=readStore() || {};
+  return Array.isArray(store.registrations)?store.registrations:[];
+}
+function saveRegistrations(registrations){
+  const store=readStore() || {};
+  store.registrations=registrations;
+  writeStore(store);
 }
 
 function sign(payload){
@@ -56,26 +82,18 @@ function requireAdmin(req,res,next){
   if(!verify(req.cookies.asreno_admin)) return res.status(401).json({error:'unauthorized'});
   next();
 }
-async function getData(key){
-  const rows=await sql`SELECT value FROM app_data WHERE key=${key}`;
-  return rows[0]?.value;
-}
-async function setData(key,value){
-  await sql`INSERT INTO app_data(key,value) VALUES(${key},${JSON.stringify(value)}::jsonb) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`;
-}
-
-app.get('/api/public', async (req,res)=>{
+app.get('/api/public', (req,res)=>{
   try{
-    const settings=await getData('settings') || DEFAULT_SETTINGS;
-    const topics=await getData('topics') || DEFAULT_TOPICS;
+    const settings=getData('settings') || DEFAULT_SETTINGS;
+    const topics=getData('topics') || DEFAULT_TOPICS;
     const {adminPass,...publicSettings}=settings;
     res.json({settings:publicSettings,topics});
   }catch(e){res.status(500).json({error:'server_error'});}
 });
 
-app.post('/api/admin/login', async (req,res)=>{
+app.post('/api/admin/login', (req,res)=>{
   try{
-    const settings=await getData('settings') || {...DEFAULT_SETTINGS,adminPass:ADMIN_PASSWORD};
+    const settings=getData('settings') || {...DEFAULT_SETTINGS,adminPass:ADMIN_PASSWORD};
     const pass=String(req.body?.password||'');
     if(pass!==String(settings.adminPass||ADMIN_PASSWORD)) return res.status(401).json({error:'wrong_password'});
     res.cookie('asreno_admin',sign({exp:Date.now()+1000*60*60*24*7}),{httpOnly:true,sameSite:'lax',secure:true,maxAge:1000*60*60*24*7});
@@ -87,12 +105,12 @@ app.get('/api/admin/me',requireAdmin,(req,res)=>res.json({ok:true}));
 
 app.put('/api/admin/settings',requireAdmin,async(req,res)=>{
   try{
-    const current=await getData('settings') || {...DEFAULT_SETTINGS,adminPass:ADMIN_PASSWORD};
+    const current=getData('settings') || {...DEFAULT_SETTINGS,adminPass:ADMIN_PASSWORD};
     const allowed=['oldPrice','newPrice','card','email','deadline','instagram','telegram','support','registrationOn'];
     const next={...current};
     for(const k of allowed) if(Object.prototype.hasOwnProperty.call(req.body,k)) next[k]=req.body[k];
     if(req.body.adminPass) next.adminPass=String(req.body.adminPass);
-    await setData('settings',next);
+    setData('settings',next);
     const {adminPass,...publicSettings}=next;
     res.json({settings:publicSettings});
   }catch(e){res.status(500).json({error:'server_error'});}
@@ -101,29 +119,32 @@ app.put('/api/admin/settings',requireAdmin,async(req,res)=>{
 app.put('/api/admin/topics',requireAdmin,async(req,res)=>{
   try{
     const topics=Array.isArray(req.body?.topics)?req.body.topics.map(String).map(x=>x.trim()).filter(Boolean):[];
-    await setData('topics',topics);res.json({topics});
+    setData('topics',topics);res.json({topics});
   }catch(e){res.status(500).json({error:'server_error'});}
 });
 
 app.get('/api/admin/registrations',requireAdmin,async(req,res)=>{
-  try{const rows=await sql`SELECT data FROM registrations ORDER BY id DESC`;res.json({registrations:rows.map(r=>r.data)});}catch(e){res.status(500).json({error:'server_error'});}
+  try{const registrations=getRegistrations().sort((a,b)=>Number(b.id)-Number(a.id));res.json({registrations});}catch(e){res.status(500).json({error:'server_error'});}
 });
 app.post('/api/registrations',async(req,res)=>{
   try{
-    const settings=await getData('settings') || DEFAULT_SETTINGS;
+    const settings=getData('settings') || DEFAULT_SETTINGS;
     if(!settings.registrationOn) return res.status(400).json({error:'registration_off'});
     const reg=req.body;
     if(!reg?.id || !reg?.name || !reg?.mobile) return res.status(400).json({error:'invalid_registration'});
-    await sql`INSERT INTO registrations(id,data) VALUES(${Number(reg.id)},${JSON.stringify(reg)}::jsonb)`;
+    const registrations=getRegistrations();
+    registrations.push(reg);
+    saveRegistrations(registrations);
     res.json({ok:true});
   }catch(e){res.status(500).json({error:'server_error'});}
 });
 app.patch('/api/admin/registrations/:id',requireAdmin,async(req,res)=>{
   try{
-    const rows=await sql`SELECT data FROM registrations WHERE id=${Number(req.params.id)}`;
-    if(!rows[0]) return res.status(404).json({error:'not_found'});
-    const data={...rows[0].data,status:req.body?.status};
-    await sql`UPDATE registrations SET data=${JSON.stringify(data)}::jsonb WHERE id=${Number(req.params.id)}`;
+    const registrations=getRegistrations();
+    const idx=registrations.findIndex(r=>Number(r.id)===Number(req.params.id));
+    if(idx<0) return res.status(404).json({error:'not_found'});
+    registrations[idx]={...registrations[idx],status:req.body?.status};
+    saveRegistrations(registrations);
     res.json({ok:true});
   }catch(e){res.status(500).json({error:'server_error'});}
 });
@@ -133,4 +154,5 @@ app.get('/admin',(req,res)=>res.sendFile(path.join(__dirname,'admin.html')));
 app.get('*',(req,res)=>res.sendFile(path.join(__dirname,'index.html')));
 
 const port=process.env.PORT||3000;
-initDb().then(()=>app.listen(port,()=>console.log(`Asreno AI running on port ${port}`))).catch(err=>{console.error(err);process.exit(1)});
+initStore();
+app.listen(port,()=>console.log(`Asreno AI running on port ${port}`));;
